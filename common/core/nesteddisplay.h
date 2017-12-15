@@ -17,20 +17,103 @@
 #ifndef COMMON_CORE_NESTEDDISPLAY_H_
 #define COMMON_CORE_NESTEDDISPLAY_H_
 
+#include <nativedisplay.h>
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <linux/hyper_dmabuf.h>
 #include <memory>
+#include <map>
+#include "drmbuffer.h"
+#include <utils/threads.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
+#include "hwcthread.h"
+#include "hwctrace.h"
 #include <nativedisplay.h>
+#define SURFACE_NAME_LENGTH    64
 
 namespace hwcomposer {
 
+struct HwcLayer;
+class NativeBufferHandler;
 class NestedDisplayManager;
+
+struct vm_header {
+  int32_t version;
+  int32_t output;
+  int32_t counter;
+  int32_t n_buffers;
+  int32_t disp_w;
+  int32_t disp_h;
+};
+
+struct vm_buffer_info {
+  int32_t width, height;
+  int32_t format;
+  int32_t pitch[3];
+  int32_t offset[3];
+  int32_t bpp;
+  int32_t tile_format;
+  int32_t rotation;
+  int32_t status;
+  int32_t counter;
+  union {
+    hyper_dmabuf_id_t hyper_dmabuf_id;
+    unsigned long ggtt_offset;
+  };
+  char surface_name[SURFACE_NAME_LENGTH];
+  uint64_t surface_id;
+  int32_t bbox[4];
+};
+
+class SocketThread: public HWCThread {
+
+public:
+  SocketThread( int* client,bool* connection, int server):HWCThread(-8, "SocketThread") {
+    client_sock_fd = client;
+    sock_fd = server;
+    connected = connection;
+    mEnabled = true;
+  }
+  virtual ~SocketThread() {}
+  void Initialize() {
+    if (InitWorker())
+      Resume();
+    else
+      ETRACE("Failed to initalize CompositorThread. %s", PRINTERROR());
+  }
+
+  void setEnabled(bool enabled) {
+    if (mEnabled != enabled) {
+      mEnabled = enabled;
+      Resume();
+    }
+  }
+
+  void HandleRoutine() override {
+    socklen_t clilen;
+    struct sockaddr_in client_addr;
+
+    if (sock_fd >= 0) {
+      clilen = sizeof(client_addr);
+      *connected = false;
+      *client_sock_fd = accept(sock_fd, (struct sockaddr *) &client_addr, &clilen);
+      mEnabled = false;
+      *connected = true;
+    }
+  }
+private:
+  bool mEnabled;
+  int* client_sock_fd;
+  bool* connected;
+  int  sock_fd;
+};
 
 class NestedDisplay : public NativeDisplay {
  public:
-  NestedDisplay();
+  NestedDisplay(NativeBufferHandler *buffer_handler);
   ~NestedDisplay() override;
 
   void InitNestedDisplay() override;
@@ -49,7 +132,23 @@ class NestedDisplay : public NativeDisplay {
     return height_;
   }
 
-  uint32_t PowerMode() const override;
+  uint32_t PowerMode() const override {
+    return 0;
+  }
+
+  uint32_t bitsPerPixel(int format) {
+    switch (format) {
+      case HAL_PIXEL_FORMAT_RGBA_8888:
+      case HAL_PIXEL_FORMAT_RGBX_8888:
+      case HAL_PIXEL_FORMAT_BGRA_8888:
+        return 32;
+      case HAL_PIXEL_FORMAT_RGB_888:
+        return 24;
+      case HAL_PIXEL_FORMAT_RGB_565:
+        return 16;
+    }
+    return 0;
+  }
 
   int GetDisplayPipe() override;
   bool SetActiveConfig(uint32_t config) override;
@@ -102,17 +201,28 @@ class NestedDisplay : public NativeDisplay {
   void RefreshUpdate();
 
   void HotPlugUpdate(bool connected);
+  int start_sock_service();
+  int hyper_communication_network_send_data(void *data, int len);
+  static void signal_callback_handler(int signum);
 
  private:
   std::shared_ptr<RefreshCallback> refresh_callback_ = NULL;
   std::shared_ptr<VsyncCallback> vsync_callback_ = NULL;
   std::shared_ptr<HotPlugCallback> hotplug_callback_ = NULL;
-  uint32_t power_mode_ = kOff;
   uint32_t display_id_;
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   bool enable_vsync_ = false;
   uint32_t config_ = 1;
+
+  NativeBufferHandler *buffer_handler_;
+
+  int mHyperDmaBuf_Fd = -1;
+  std::map<HWCNativeHandle, vm_buffer_info> mHyperDmaExportedBuffers;   // Track the  and hyper dmabuf metadata info mapping
+  static std::unique_ptr<SocketThread> st_;
+  int msock_fd = -1;
+  static int mclient_sock_fd;
+  bool mconnected = false;
 };
 
 }  // namespace hwcomposer

@@ -64,6 +64,8 @@ class OverlayBuffer {
 
   virtual const uint32_t* GetOffsets() const = 0;
 
+  virtual uint32_t GetTilingMode() const = 0;
+
   // external_import should be true if this resource is not owned by HWC.
   virtual const ResourceHandle& GetGpuResource(GpuDisplay egl_display,
                                                bool external_import) = 0;

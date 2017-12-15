@@ -196,6 +196,7 @@ class IAHWC2 : public hwc2_device_t {
     // True after validateDisplay
     bool checkValidateDisplay = false;
     bool disable_explicit_sync_ = false;
+    bool enable_nested_display_compose_ = false;
   };
 
   static IAHWC2 *toIAHWC2(hwc2_device_t *dev) {

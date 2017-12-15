@@ -28,6 +28,7 @@ struct HwcBuffer {
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   uint32_t format_ = 0; // Drm format equivalent to native_format.
+  uint32_t tiling_mode_ = 0;
   uint32_t native_format_ = 0; // OS specific format.
   uint32_t pitches_[4];
   uint32_t offsets_[4];
